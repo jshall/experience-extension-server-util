@@ -10,7 +10,8 @@
     ],
     "scripts": {},
     "devDependencies": {
-        "eslint": "^7.32.0"
+        "eslint": "^7.32.0",
+        "typescript": "^5.9.3"
     },
     "dependencies": {
         "got": "^11.8.6",
