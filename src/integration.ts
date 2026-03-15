@@ -1,9 +1,10 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
-import got, { type Headers, type StrictOptions } from 'got';
+import got, { type StrictOptions } from 'got';
 import { StatusCodes } from 'http-status-codes';
-import { decode } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import { getLogger, type Logger } from './log.js';
+import type { Require } from './util.js';
 
 const baseOptions: Require<StrictOptions, 'headers'> = {
     headers: {
@@ -12,6 +13,7 @@ const baseOptions: Require<StrictOptions, 'headers'> = {
     }
 };
 
+type Headers = Record<string, string | string[] | undefined>;
 type IntegrationOptions = { ethosIntegrationUrl?: string, headers?: Headers }
 function integrationUrl(options: IntegrationOptions = {}) {
     return options.ethosIntegrationUrl || process.env.ETHOS_INTEGRATION_URL;
@@ -23,7 +25,7 @@ type UrlParameters = {
     options?: IntegrationOptions,
     resource?: string,
 };
-function buildUrl({ base = 'api', id, options, resource }: UrlParameters) {
+function buildUrl({ base = 'api', id, options = {}, resource }: UrlParameters) {
     let url;
     switch (base) {
         case 'admin':
@@ -58,17 +60,21 @@ function addAuthorization(token: string, options: Require<IntegrationOptions, 'h
     options.headers.Authorization = `Bearer ${token}`;
 }
 
-type IntegrationContext = {
+export type IntegrationContext = {
     ethosGetCount?: number;
     ethosPutCount?: number;
     ethosPostCount?: number;
     ethosGraphQLCount?: number;
     tokensByApiKey?: Record<string, { expires: number, token: string }>
 };
-type TokenParameters = { apiKey: string, context?: IntegrationContext, options: IntegrationOptions, token: string, logger?: Logger };
-export async function getToken({ apiKey, context = {}, options, token, logger = getLogger() }: TokenParameters) {
+type TokenParameters = { apiKey: string, context?: IntegrationContext, options?: IntegrationOptions, token?: string | undefined, logger?: Logger };
+export async function getToken({ apiKey, context = {}, options = {}, token, logger = getLogger() }: TokenParameters) {
     if (token) {
         return { context, token };
+    }
+
+    if (!apiKey) {
+        throw new Error('getToken missing apiKey');
     }
 
     // use cached token if not likely expired
@@ -82,11 +88,7 @@ export async function getToken({ apiKey, context = {}, options, token, logger = 
         return { context, token: cachedToken.token };
     }
 
-    if (!apiKey) {
-        throw new Error('getToken missing apiKey');
-    }
-
-    const requestOptions = createNewRequestOptions({logger});
+    const requestOptions = createNewRequestOptions({ logger });
     addAuthorization(apiKey, requestOptions);
 
     const url = buildUrl({ base: 'auth', options });
@@ -95,7 +97,7 @@ export async function getToken({ apiKey, context = {}, options, token, logger = 
     const response = await got.post(url, { responseType: 'text', ...requestOptions });
     if (response.statusCode === StatusCodes.OK) {
         const token = response.body;
-        const expires = decode(token, { json: true })?.exp || now + (5 * 60 * 1000);
+        const expires = jwt.decode(token, { json: true })?.exp || now + (5 * 60 * 1000);
         context.tokensByApiKey[apiKey] = {
             expires,
             token
@@ -107,8 +109,8 @@ export async function getToken({ apiKey, context = {}, options, token, logger = 
     throw new Error(`Integration Auth failed. response status: ${response.statusCode}`);
 }
 
-type GetParameters = TokenParameters & UrlParameters & { searchParams?: Record<string, any> };
-export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options, logger = getLogger() }: GetParameters) {
+type GetParameters = TokenParameters & Require<UrlParameters, 'resource'> & { searchParams?: Record<string, any> };
+export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: GetParameters) {
     if (!resource) {
         throw new Error('get: missing resource name');
     }
@@ -160,11 +162,11 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
 }
 
 type GraphQLParameters = TokenParameters & { query: string, variables: Record<string, any> };
-export async function graphql<T>({ apiKey, context = {}, options, query, token, variables, logger = getLogger() }: GraphQLParameters) {
+export async function graphql<T>({ apiKey, context = {}, options = {}, query, token, variables, logger = getLogger() }: GraphQLParameters) {
     const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     if (tokenToUse) {
-        const requestOptions = createNewRequestOptions({logger,  headers: options?.headers || {} });
+        const requestOptions = createNewRequestOptions({ logger, headers: options?.headers || {} });
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.json = {
             query,
@@ -185,7 +187,7 @@ export async function graphql<T>({ apiKey, context = {}, options, query, token, 
 }
 
 type PostParameters = GetParameters & { data: any };
-export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options, logger = getLogger() }: PostParameters) {
+export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: PostParameters) {
     if (!resource) {
         throw new Error('post: missing resource name');
     }
@@ -203,7 +205,7 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
         logger.debug("post options", options);
         const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
         logger.debug("post headers", headers);
-        const requestOptions = createNewRequestOptions({logger,  headers });
+        const requestOptions = createNewRequestOptions({ logger, headers });
         logger.debug("post requestOptions", requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
@@ -244,7 +246,7 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
     }
 }
 
-export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options, logger = getLogger() }: PostParameters) {
+export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: PostParameters) {
     if (!resource) {
         throw new Error('put: missing resource name');
     }
@@ -260,7 +262,7 @@ export async function put<T>({ apiKey, base = 'api', context = {}, data, id, res
         logger.debug("put options", options);
         const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
         logger.debug("put headers", headers);
-        const requestOptions = createNewRequestOptions({logger,  headers });
+        const requestOptions = createNewRequestOptions({ logger, headers });
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
             requestOptions.searchParams = searchParams;

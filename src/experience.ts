@@ -4,6 +4,7 @@ import got, { type OptionsOfJSONResponseBody } from 'got';
 import { StatusCodes } from 'http-status-codes';
 import type { ExperienceJwt } from './jwt.js';
 import { getLogger, type Logger } from './log.js';
+import type { Require } from './util.js';
 
 const baseOptions: Require<OptionsOfJSONResponseBody, 'headers'> = {
     responseType: 'json',

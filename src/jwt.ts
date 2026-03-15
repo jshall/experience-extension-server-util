@@ -1,6 +1,6 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
-import { verify } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 
 export type ExperienceJwt = {
     tenant: { id: string; };
@@ -17,5 +17,5 @@ export function authorize(token: string, options: AuthorizeOptions) {
 
     if (!secret) throw 'No token provided'
 
-    return verify(token, secret, { algorithms: ['HS256'], ignoreExpiration });
+    return jwt.verify(token, secret, { algorithms: ['HS256'], ignoreExpiration });
 }

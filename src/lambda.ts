@@ -2,7 +2,6 @@
 
 import type { MiddlewareObj, Request } from "@middy/core";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { type Headers } from "got";
 import { StatusCodes } from 'http-status-codes';
 import { authorize, type ExperienceJwt } from './jwt.js';
 
@@ -24,7 +23,7 @@ export function jwtAuthorizeMiddy({ options = {} }: { options: Parameters<typeof
 
         if (bearer !== 'Bearer' || !authorizationToken) {
             const message = 'missing Authorization Bearer token';
-            const throwError = new HTTPError(JSON.stringify({ error: {message}}));
+            const throwError = new HTTPError(JSON.stringify({ error: { message } }));
             throwError.statusCode = StatusCodes.FORBIDDEN;
             throw throwError;
         }
@@ -34,7 +33,7 @@ export function jwtAuthorizeMiddy({ options = {} }: { options: Parameters<typeof
             request.event.jwt = decodedJwt as unknown as ExperienceJwt;
         } catch (error: any) {
             const message = `Authorization token failed: ${error.message}`;
-            const throwError = new HTTPError(JSON.stringify({ error: {message}}));
+            const throwError = new HTTPError(JSON.stringify({ error: { message } }));
             throwError.statusCode = StatusCodes.FORBIDDEN;
 
             throw throwError;
@@ -48,6 +47,7 @@ export function jwtAuthorizeMiddy({ options = {} }: { options: Parameters<typeof
 
 const contentTypeJsonHeader = { 'Content-Type': 'application/json' }
 
+type Headers = Record<string, string | string[] | undefined>;
 export type Response = { statusCode: number, headers: Headers, body?: string | unknown }
 export const buildResponse = ({ statusCode, headers = {}, body }: Response) => {
     const response: Response = {
