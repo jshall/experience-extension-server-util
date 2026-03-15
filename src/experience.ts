@@ -3,9 +3,7 @@
 import got, { type OptionsOfJSONResponseBody } from 'got';
 import { StatusCodes } from 'http-status-codes';
 import type { ExperienceJwt } from './jwt.js';
-
-import { getLogger } from './log.js';
-const logger = getLogger();
+import { getLogger, type Logger } from './log.js';
 
 const baseOptions: Require<OptionsOfJSONResponseBody, 'headers'> = {
     responseType: 'json',
@@ -15,8 +13,8 @@ const baseOptions: Require<OptionsOfJSONResponseBody, 'headers'> = {
     }
 };
 
-type ConfigurationInputs = { jwt?: ExperienceJwt, token: string, url: string, };
-export async function getCardServerConfiguration<T extends Record<string, any>>({ jwt, token, url, }: ConfigurationInputs) {
+type ConfigurationInputs = { jwt?: ExperienceJwt, token: string, url: string, logger?: Logger };
+export async function getCardServerConfiguration<T extends Record<string, any>>({ jwt, token, url, logger = getLogger() }: ConfigurationInputs) {
     const configUrl = url || jwt?.card?.cardServerConfigurationApiUrl;
 
     if (!configUrl) {
@@ -33,15 +31,13 @@ export async function getCardServerConfiguration<T extends Record<string, any>>(
     if (response.statusCode === StatusCodes.OK) {
         const { body: config } = response;
 
-        if (logger.getLevel() <= logger.levels.DEBUG) {
-            const logConfig: Record<string, any> = { ...config };
-            for (const key in logConfig) {
-                if (key.toLocaleLowerCase().endsWith('key')) {
-                    logConfig[key] = '*****';
-                }
+        const logConfig: Record<string, any> = { ...config };
+        for (const key in logConfig) {
+            if (key.toLocaleLowerCase().endsWith('key')) {
+                logConfig[key] = '*****';
             }
-            logger.debug('getCardServerConfiguration configuration:', logConfig);
         }
+        logger.debug('getCardServerConfiguration configuration:', logConfig);
         return { config };
     } else {
         return {

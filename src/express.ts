@@ -3,18 +3,16 @@
 import type { NextFunction, Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import { authorize } from './jwt.js';
-
-import { getLogger } from './log.js';
-const logger = getLogger();
+import { getLogger, type Logger } from './log.js';
 
 declare module "express-serve-static-core" {
     interface Request {
         jwt?: ReturnType<typeof authorize>;
     }
 }
-type AuthorizedRequest = Request
+export type AuthorizedRequest = Request
 
-export function jwtAuthorize({ options }: { options: Parameters<typeof authorize>[1] }) {
+export function jwtAuthorize({ options, logger = getLogger() }: { options: Parameters<typeof authorize>[1], logger?: Logger }) {
     return function (request: Request, response: Response, next: NextFunction) {
         const { headers: { authorization: lowerAuthorization, Authorization: upperAuthorization } = {} } = request;
 

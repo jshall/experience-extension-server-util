@@ -3,9 +3,7 @@
 import got, { type Headers, type StrictOptions } from 'got';
 import { StatusCodes } from 'http-status-codes';
 import { decode } from 'jsonwebtoken';
-
-import { getLogger } from './log.js';
-const logger = getLogger();
+import { getLogger, type Logger } from './log.js';
 
 const baseOptions: Require<StrictOptions, 'headers'> = {
     headers: {
@@ -44,7 +42,7 @@ function buildUrl({ base = 'api', id, options, resource }: UrlParameters) {
     return url
 }
 
-function createNewRequestOptions({ headers }: { headers?: Headers } = {}) {
+function createNewRequestOptions({ headers, logger = getLogger() }: { headers?: Headers, logger?: Logger } = {}) {
     const requestOptions = structuredClone(baseOptions);
     logger.debug("createNewRequestOptions initiaze requestOptions:", requestOptions);
     if (headers) {
@@ -67,8 +65,8 @@ type IntegrationContext = {
     ethosGraphQLCount?: number;
     tokensByApiKey?: Record<string, { expires: number, token: string }>
 };
-type TokenParameters = { apiKey: string, context?: IntegrationContext, options: IntegrationOptions, token: string };
-export async function getToken({ apiKey, context = {}, options, token }: TokenParameters) {
+type TokenParameters = { apiKey: string, context?: IntegrationContext, options: IntegrationOptions, token: string, logger?: Logger };
+export async function getToken({ apiKey, context = {}, options, token, logger = getLogger() }: TokenParameters) {
     if (token) {
         return { context, token };
     }
@@ -88,7 +86,7 @@ export async function getToken({ apiKey, context = {}, options, token }: TokenPa
         throw new Error('getToken missing apiKey');
     }
 
-    const requestOptions = createNewRequestOptions();
+    const requestOptions = createNewRequestOptions({logger});
     addAuthorization(apiKey, requestOptions);
 
     const url = buildUrl({ base: 'auth', options });
@@ -110,12 +108,12 @@ export async function getToken({ apiKey, context = {}, options, token }: TokenPa
 }
 
 type GetParameters = TokenParameters & UrlParameters & { searchParams?: Record<string, any> };
-export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options }: GetParameters) {
+export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options, logger = getLogger() }: GetParameters) {
     if (!resource) {
         throw new Error('get: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
     if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
@@ -123,7 +121,7 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
     }
 
     if (tokenToUse) {
-        const requestOptions = createNewRequestOptions({ headers: options?.headers || {} });
+        const requestOptions = createNewRequestOptions({ logger, headers: options?.headers || {} });
         logger.debug("get function requestOptions:", requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.searchParams = searchParams;
@@ -162,11 +160,11 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
 }
 
 type GraphQLParameters = TokenParameters & { query: string, variables: Record<string, any> };
-export async function graphql<T>({ apiKey, context = {}, options, query, token, variables }: GraphQLParameters) {
-    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
+export async function graphql<T>({ apiKey, context = {}, options, query, token, variables, logger = getLogger() }: GraphQLParameters) {
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     if (tokenToUse) {
-        const requestOptions = createNewRequestOptions({ headers: options?.headers || {} });
+        const requestOptions = createNewRequestOptions({logger,  headers: options?.headers || {} });
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.json = {
             query,
@@ -187,12 +185,12 @@ export async function graphql<T>({ apiKey, context = {}, options, query, token, 
 }
 
 type PostParameters = GetParameters & { data: any };
-export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options }: PostParameters) {
+export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options, logger = getLogger() }: PostParameters) {
     if (!resource) {
         throw new Error('post: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
     if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
@@ -205,7 +203,7 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
         logger.debug("post options", options);
         const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
         logger.debug("post headers", headers);
-        const requestOptions = createNewRequestOptions({ headers });
+        const requestOptions = createNewRequestOptions({logger,  headers });
         logger.debug("post requestOptions", requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
@@ -246,12 +244,12 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
     }
 }
 
-export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options }: PostParameters) {
+export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options, logger = getLogger() }: PostParameters) {
     if (!resource) {
         throw new Error('put: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
     if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
@@ -262,7 +260,7 @@ export async function put<T>({ apiKey, base = 'api', context = {}, data, id, res
         logger.debug("put options", options);
         const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
         logger.debug("put headers", headers);
-        const requestOptions = createNewRequestOptions({ headers });
+        const requestOptions = createNewRequestOptions({logger,  headers });
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
             requestOptions.searchParams = searchParams;

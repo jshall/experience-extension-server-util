@@ -2,6 +2,15 @@
 
 import log, { type LogLevelDesc } from 'loglevel';
 
+export type Logger = {
+    trace(...msg: any[]): void;
+    debug(...msg: any[]): void;
+    log(...msg: any[]): void;
+    info(...msg: any[]): void;
+    warn(...msg: any[]): void;
+    error(...msg: any[]): void;
+}
+
 export function getLogger(name?: string) {
     return name ? log.getLogger(name) : log;
 }
