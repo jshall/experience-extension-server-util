@@ -1,26 +1,33 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
-import got from 'got';
+import got, { type Headers, type StrictOptions } from 'got';
 import { StatusCodes } from 'http-status-codes';
+import { decode } from 'jsonwebtoken';
 
 import { getLogger } from './log.js';
 const logger = getLogger();
 
-const baseOptions = {
+const baseOptions: Require<StrictOptions, 'headers'> = {
     headers: {
         Accept: 'application/json',
         'Cache-Control': 'no-cache'
     }
 };
-const stringifiedBaseOptions = JSON.stringify(baseOptions);
 
-function integrationUrl(options={}) {
+type IntegrationOptions = { ethosIntegrationUrl?: string, headers?: Headers }
+function integrationUrl(options: IntegrationOptions = {}) {
     return options.ethosIntegrationUrl || process.env.ETHOS_INTEGRATION_URL;
 }
 
-function buildUrl({base = 'api', id, options, resource}) {
+type UrlParameters = {
+    base?: string,
+    id?: string | undefined,
+    options?: IntegrationOptions,
+    resource?: string,
+};
+function buildUrl({ base = 'api', id, options, resource }: UrlParameters) {
     let url;
-    switch(base) {
+    switch (base) {
         case 'admin':
         case 'api':
             url = `${integrationUrl(options)}/${base}/${resource}${id ? '/' + id : ''}`;
@@ -37,23 +44,31 @@ function buildUrl({base = 'api', id, options, resource}) {
     return url
 }
 
-function createNewRequestOptions({headers}={}) {
-    const requestOptions = JSON.parse(stringifiedBaseOptions);
+function createNewRequestOptions({ headers }: { headers?: Headers } = {}) {
+    const requestOptions = structuredClone(baseOptions);
     logger.debug("createNewRequestOptions initiaze requestOptions:", requestOptions);
     if (headers) {
         // assign incoming headers first
-        Object.assign( requestOptions.headers, headers);
+        Object.assign(requestOptions.headers, headers);
         logger.debug("createNewRequestOptions after add custom header values requestOptions:", requestOptions);
     }
     logger.debug("createNewRequestOptions before return requestOptions:", requestOptions);
     return requestOptions;
 }
 
-function addAuthorization(token, options) {
+function addAuthorization(token: string, options: Require<IntegrationOptions, 'headers'>) {
     options.headers.Authorization = `Bearer ${token}`;
 }
 
-export async function getToken({apiKey, context={}, options, token}) {
+type IntegrationContext = {
+    ethosGetCount?: number;
+    ethosPutCount?: number;
+    ethosPostCount?: number;
+    ethosGraphQLCount?: number;
+    tokensByApiKey?: Record<string, { expires: number, token: string }>
+};
+type TokenParameters = { apiKey: string, context?: IntegrationContext, options: IntegrationOptions, token: string };
+export async function getToken({ apiKey, context = {}, options, token }: TokenParameters) {
     if (token) {
         return { context, token };
     }
@@ -76,14 +91,13 @@ export async function getToken({apiKey, context={}, options, token}) {
     const requestOptions = createNewRequestOptions();
     addAuthorization(apiKey, requestOptions);
 
-    const url = buildUrl({base: 'auth', options});
+    const url = buildUrl({ base: 'auth', options });
 
     logger.debug('requesting a new token');
-    const response = await got.post(url, requestOptions);
+    const response = await got.post(url, { responseType: 'text', ...requestOptions });
     if (response.statusCode === StatusCodes.OK) {
         const token = response.body;
-        // we could decode to get the exact expire, but Ethos currently uses 5 minute expirations
-        const expires = now + (5 * 60 * 1000);
+        const expires = decode(token, { json: true })?.exp || now + (5 * 60 * 1000);
         context.tokensByApiKey[apiKey] = {
             expires,
             token
@@ -95,40 +109,41 @@ export async function getToken({apiKey, context={}, options, token}) {
     throw new Error(`Integration Auth failed. response status: ${response.statusCode}`);
 }
 
-export async function get({apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options}) {
+type GetParameters = TokenParameters & UrlParameters & { searchParams?: Record<string, any> };
+export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options }: GetParameters) {
     if (!resource) {
-        throw  new Error('get: missing resource name');
+        throw new Error('get: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({apiKey, context, options, token});
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
-    if (searchParams.criteria && typeof searchParams.criteria !== 'string' ) {
+    if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
         searchParams.criteria = JSON.stringify(searchParams.criteria);
     }
 
     if (tokenToUse) {
-        const requestOptions = createNewRequestOptions({headers: options?.headers});
+        const requestOptions = createNewRequestOptions({ headers: options?.headers || {} });
         logger.debug("get function requestOptions:", requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.searchParams = searchParams;
 
-        const url = buildUrl({base, id, options, resource});
+        const url = buildUrl({ base, id, options, resource });
         context.ethosGetCount = context.ethosGetCount ? context.ethosGetCount + 1 : 1;
         try {
             logger.debug('url', url);
             logger.debug('requestOptions', requestOptions);
-            const response = await got.get(url, requestOptions);
+            const response = await got.get<T>(url, { responseType: 'json', ...requestOptions });
             if (response.statusCode === StatusCodes.OK) {
                 return {
                     context,
-                    data: JSON.parse(response.body)
+                    data: response.body
                 }
             }
 
             logger.error(`Integration get failed. response status: ${response.statusCode}`);
             throw new Error(`Integration get failed. response status: ${response.statusCode}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('ethos get failed:', error);
             let errorResponseBody = {};
             if (error.response) {
@@ -146,22 +161,23 @@ export async function get({apiKey, base = 'api', context = {}, id, resource, sea
     }
 }
 
-export async function graphql({apiKey, context = {}, options, query, token, variables}) {
-    const { token: tokenToUse } = await getToken({apiKey, context, options, token});
+type GraphQLParameters = TokenParameters & { query: string, variables: Record<string, any> };
+export async function graphql<T>({ apiKey, context = {}, options, query, token, variables }: GraphQLParameters) {
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
 
     if (tokenToUse) {
-        const requestOptions = createNewRequestOptions({headers: options?.headers});
+        const requestOptions = createNewRequestOptions({ headers: options?.headers || {} });
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.json = {
             query,
             variables
         };
 
-        const url = buildUrl({base: 'graphql', options});
+        const url = buildUrl({ base: 'graphql', options });
         context.ethosGraphQLCount = context.ethosGraphQLCount ? context.ethosGraphQLCount + 1 : 1;
-        const response = await got.post(url, requestOptions);
+        const response = await got.post<T>(url, { responseType: 'json', ...requestOptions });
         if (response.statusCode === StatusCodes.OK) {
-            return { context, ...JSON.parse(response.body) };
+            return { context, ...response.body };
         }
 
         throw new Error(`Integration GraphQL failed. response status: ${response.statusCode}`);
@@ -170,48 +186,49 @@ export async function graphql({apiKey, context = {}, options, query, token, vari
     }
 }
 
-export async function post({apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options}) {
+type PostParameters = GetParameters & { data: any };
+export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options }: PostParameters) {
     if (!resource) {
-        throw  new Error('post: missing resource name');
+        throw new Error('post: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({apiKey, context, options, token});
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
-    if (searchParams.criteria && typeof searchParams.criteria !== 'string' ) {
+    if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
         searchParams.criteria = JSON.stringify(searchParams.criteria);
     }
 
     if (tokenToUse) {
         // const headers = Object.assign({}, options?.headers, { 'Content-Type': 'application/json'})
         // const requestOptions = createNewRequestOptions({headers});
-        logger.debug ("post options", options);
-        const headers = Object.assign({}, { 'Content-Type': 'application/json'}, options?.headers, )
-        logger.debug ("post headers", headers);
-        const requestOptions = createNewRequestOptions({headers});
-        logger.debug ("post requestOptions", requestOptions);
+        logger.debug("post options", options);
+        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
+        logger.debug("post headers", headers);
+        const requestOptions = createNewRequestOptions({ headers });
+        logger.debug("post requestOptions", requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
             requestOptions.searchParams = searchParams;
         }
         requestOptions.json = data;
 
-        const url = buildUrl({base, id, options, resource});
+        const url = buildUrl({ base, id, options, resource });
         context.ethosPostCount = context.ethosPostCount ? context.ethosPostCount + 1 : 1;
         try {
             logger.debug('url', url);
             logger.debug('before got.post requestOptions', JSON.stringify(requestOptions, null, 2));
-            const response = await got.post(url, requestOptions,);
+            const response = await got.post<T>(url, { responseType: 'json', ...requestOptions });
             if (response.statusCode === StatusCodes.OK || response.statusCode === StatusCodes.CREATED) {
                 return {
                     context,
-                    data: JSON.parse(response.body)
+                    data: response.body
                 }
             }
 
             logger.error(`Integration post failed. response status: ${response.statusCode}`);
             throw new Error(`Integration post failed. response status: ${response.statusCode}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('ethos post failed:', error);
             let errorResponseBody = {};
             if (error.response) {
@@ -229,45 +246,45 @@ export async function post({apiKey, base = 'api', context = {}, data, id, resour
     }
 }
 
-export async function put({apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options}) {
+export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options }: PostParameters) {
     if (!resource) {
-        throw  new Error('put: missing resource name');
+        throw new Error('put: missing resource name');
     }
 
-    const { token: tokenToUse } = await getToken({apiKey, context, options, token});
+    const { token: tokenToUse } = await getToken({ apiKey, context, options, token });
 
     // if there is a searchParams.criteria that is not stringified, stringify it now
-    if (searchParams.criteria && typeof searchParams.criteria !== 'string' ) {
+    if (searchParams.criteria && typeof searchParams.criteria !== 'string') {
         searchParams.criteria = JSON.stringify(searchParams.criteria);
     }
 
     if (tokenToUse) {
-        logger.debug ("put options", options);
-        const headers = Object.assign({}, { 'Content-Type': 'application/json'}, options?.headers, )
-        logger.debug ("put headers", headers);
-        const requestOptions = createNewRequestOptions({headers});
+        logger.debug("put options", options);
+        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
+        logger.debug("put headers", headers);
+        const requestOptions = createNewRequestOptions({ headers });
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
             requestOptions.searchParams = searchParams;
         }
         requestOptions.json = data;
 
-        const url = buildUrl({base, id, options, resource});
+        const url = buildUrl({ base, id, options, resource });
         context.ethosPutCount = context.ethosPutCount ? context.ethosPutCount + 1 : 1;
         try {
             logger.debug('url', url);
             logger.debug('requestOptions', JSON.stringify(requestOptions, null, 2));
-            const response = await got.put(url, requestOptions);
+            const response = await got.put<T>(url, { responseType: 'json', ...requestOptions });
             if (response.statusCode === StatusCodes.OK || response.statusCode === StatusCodes.CREATED) {
                 return {
                     context,
-                    data: JSON.parse(response.body)
+                    data: response.body
                 }
             }
 
             logger.error(`Integration put failed. response status: ${response.statusCode}`);
             throw new Error(`Integration put failed. response status: ${response.statusCode}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('ethos put failed:', error);
             let errorResponseBody = {};
             if (error.response) {

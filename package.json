@@ -4,17 +4,25 @@
     "description": "Experience helpers for server side",
     "license": "Apache-2.0",
     "type": "module",
-    "main": "src/index.js",
+    "main": "dist/index.js",
     "files": [
-        "src"
+        "dist"
     ],
-    "scripts": {},
+    "scripts": {
+        "watch": "tsc -w",
+        "prepare": "tsc"
+    },
     "devDependencies": {
-        "eslint": "^7.32.0",
+        "eslint": "^10.0.3",
         "typescript": "^5.9.3"
     },
     "dependencies": {
-        "got": "^11.8.6",
+        "@middy/core": "^7.1.6",
+        "@types/aws-lambda": "^8.10.161",
+        "@types/express": "^5.0.6",
+        "@types/got": "^9.6.12",
+        "@types/jsonwebtoken": "^9.0.0",
+        "got": "^14.6.6",
         "http-status-codes": "^2.1.4",
         "jsonwebtoken": "^9.0.0",
         "loglevel": "^1.8.1"

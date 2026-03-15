@@ -1,12 +1,17 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
+import type { MiddlewareObj, Request } from "@middy/core";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import { type Headers } from "got";
 import { StatusCodes } from 'http-status-codes';
-import { authorize } from './jwt.js';
+import { authorize, type ExperienceJwt } from './jwt.js';
 
-export function jwtAuthorizeMiddy({options: opts = {}}) {
-    const options = {...opts};
+export class HTTPError extends Error { statusCode?: number; }
 
-    function before(request) {
+export type AuthorizedEvent = APIGatewayProxyEvent & { jwt: ExperienceJwt }
+export function jwtAuthorizeMiddy({ options = {} }: { options: Parameters<typeof authorize>[1] }): MiddlewareObj<AuthorizedEvent> {
+
+    function before(request: Request<AuthorizedEvent>) {
         const {
             event: {
                 headers: {
@@ -19,17 +24,17 @@ export function jwtAuthorizeMiddy({options: opts = {}}) {
 
         if (bearer !== 'Bearer' || !authorizationToken) {
             const message = 'missing Authorization Bearer token';
-            const throwError = new Error(JSON.stringify({ error: {message}}));
+            const throwError = new HTTPError(JSON.stringify({ error: {message}}));
             throwError.statusCode = StatusCodes.FORBIDDEN;
             throw throwError;
         }
 
         try {
             const decodedJwt = authorize(authorizationToken, options);
-            request.event.jwt = decodedJwt;
-        } catch (error) {
+            request.event.jwt = decodedJwt as unknown as ExperienceJwt;
+        } catch (error: any) {
             const message = `Authorization token failed: ${error.message}`;
-            const throwError = new Error(JSON.stringify({ error: {message}}));
+            const throwError = new HTTPError(JSON.stringify({ error: {message}}));
             throwError.statusCode = StatusCodes.FORBIDDEN;
 
             throw throwError;
@@ -41,10 +46,11 @@ export function jwtAuthorizeMiddy({options: opts = {}}) {
     }
 }
 
-const contentTypeJsonHeader = {'Content-Type': 'application/json'}
+const contentTypeJsonHeader = { 'Content-Type': 'application/json' }
 
-export const buildResponse = ({ statusCode, headers = {}, body }) => {
-    const response = {
+export type Response = { statusCode: number, headers: Headers, body?: string | unknown }
+export const buildResponse = ({ statusCode, headers = {}, body }: Response) => {
+    const response: Response = {
         statusCode: statusCode,
         headers: { ...contentTypeJsonHeader, ...headers }
     }

@@ -1,12 +1,13 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
-import got from 'got';
+import got, { type OptionsOfJSONResponseBody } from 'got';
 import { StatusCodes } from 'http-status-codes';
+import type { ExperienceJwt } from './jwt.js';
 
 import { getLogger } from './log.js';
 const logger = getLogger();
 
-const baseOptions = {
+const baseOptions: Require<OptionsOfJSONResponseBody, 'headers'> = {
     responseType: 'json',
     throwHttpErrors: false,
     headers: {
@@ -14,7 +15,8 @@ const baseOptions = {
     }
 };
 
-export async function getCardServerConfiguration({ jwt, token,  url, }) {
+type ConfigurationInputs = { jwt?: ExperienceJwt, token: string, url: string, };
+export async function getCardServerConfiguration<T extends Record<string, any>>({ jwt, token, url, }: ConfigurationInputs) {
     const configUrl = url || jwt?.card?.cardServerConfigurationApiUrl;
 
     if (!configUrl) {
@@ -27,12 +29,12 @@ export async function getCardServerConfiguration({ jwt, token,  url, }) {
 
     logger.debug('getCardServerConfiguration url:', configUrl);
 
-    const response = await got.get(configUrl, options);
+    const response = await got.get<T>(configUrl, options);
     if (response.statusCode === StatusCodes.OK) {
         const { body: config } = response;
 
         if (logger.getLevel() <= logger.levels.DEBUG) {
-            const logConfig = {...config};
+            const logConfig: Record<string, any> = { ...config };
             for (const key in logConfig) {
                 if (key.toLocaleLowerCase().endsWith('key')) {
                     logConfig[key] = '*****';
@@ -40,7 +42,7 @@ export async function getCardServerConfiguration({ jwt, token,  url, }) {
             }
             logger.debug('getCardServerConfiguration configuration:', logConfig);
         }
-        return {config};
+        return { config };
     } else {
         return {
             error: {
