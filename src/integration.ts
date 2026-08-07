@@ -1,29 +1,30 @@
 // Copyright 2021-2023 Ellucian Company L.P. and its affiliates.
 
-import got, { type StrictOptions } from 'got';
+import got, { type SearchParameters, type StrictOptions } from 'got';
 import { StatusCodes } from 'http-status-codes';
-import jwt from 'jsonwebtoken';
+import { decode } from 'jsonwebtoken';
 import { getLogger, type Logger } from './log.js';
-import type { Require } from './util.js';
+
+type Require<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: T[P] };
 
 const baseOptions: Require<StrictOptions, 'headers'> = {
     headers: {
         Accept: 'application/json',
-        'Cache-Control': 'no-cache'
-    }
+        'Cache-Control': 'no-cache',
+    },
 };
 
 type Headers = Record<string, string | string[] | undefined>;
-type IntegrationOptions = { ethosIntegrationUrl?: string, headers?: Headers }
+type IntegrationOptions = { ethosIntegrationUrl?: string; headers?: Headers };
 function integrationUrl(options: IntegrationOptions = {}) {
     return options.ethosIntegrationUrl || process.env.ETHOS_INTEGRATION_URL;
 }
 
 type UrlParameters = {
-    base?: string,
-    id?: string | undefined,
-    options?: IntegrationOptions,
-    resource?: string,
+    base?: string;
+    id?: string | undefined;
+    options?: IntegrationOptions;
+    resource?: string;
 };
 function buildUrl({ base = 'api', id, options = {}, resource }: UrlParameters) {
     let url;
@@ -41,18 +42,18 @@ function buildUrl({ base = 'api', id, options = {}, resource }: UrlParameters) {
             throw new Error(`Unknown base to buildUrl: ${base}`);
     }
 
-    return url
+    return url;
 }
 
-function createNewRequestOptions({ headers, logger = getLogger() }: { headers?: Headers, logger?: Logger } = {}) {
+function createNewRequestOptions({ headers, logger = getLogger() }: { headers?: Headers; logger?: Logger } = {}) {
     const requestOptions = structuredClone(baseOptions);
-    logger.debug("createNewRequestOptions initiaze requestOptions:", requestOptions);
+    logger.debug('createNewRequestOptions initiaze requestOptions:', requestOptions);
     if (headers) {
         // assign incoming headers first
         Object.assign(requestOptions.headers, headers);
-        logger.debug("createNewRequestOptions after add custom header values requestOptions:", requestOptions);
+        logger.debug('createNewRequestOptions after add custom header values requestOptions:', requestOptions);
     }
-    logger.debug("createNewRequestOptions before return requestOptions:", requestOptions);
+    logger.debug('createNewRequestOptions before return requestOptions:', requestOptions);
     return requestOptions;
 }
 
@@ -65,9 +66,15 @@ export type IntegrationContext = {
     ethosPutCount?: number;
     ethosPostCount?: number;
     ethosGraphQLCount?: number;
-    tokensByApiKey?: Record<string, { expires: number, token: string }>
+    tokensByApiKey?: Record<string, { expires: number; token: string }>;
 };
-type TokenParameters = { apiKey: string, context?: IntegrationContext, options?: IntegrationOptions, token?: string | undefined, logger?: Logger };
+type TokenParameters = {
+    apiKey: string;
+    context?: IntegrationContext;
+    options?: IntegrationOptions;
+    token?: string | undefined;
+    logger?: Logger;
+};
 export async function getToken({ apiKey, context = {}, options = {}, token, logger = getLogger() }: TokenParameters) {
     if (token) {
         return { context, token };
@@ -83,7 +90,7 @@ export async function getToken({ apiKey, context = {}, options = {}, token, logg
         context.tokensByApiKey = {};
     }
     const cachedToken = context.tokensByApiKey[apiKey];
-    if (cachedToken && cachedToken.expires - (30 * 1000) > now) {
+    if (cachedToken && cachedToken.expires - 30 * 1000 > now) {
         logger.debug('using cached token');
         return { context, token: cachedToken.token };
     }
@@ -97,10 +104,10 @@ export async function getToken({ apiKey, context = {}, options = {}, token, logg
     const response = await got.post(url, { responseType: 'text', ...requestOptions });
     if (response.statusCode === StatusCodes.OK) {
         const token = response.body;
-        const expires = jwt.decode(token, { json: true })?.exp || now + (5 * 60 * 1000);
+        const expires = decode(token, { json: true })?.exp || now + 5 * 60 * 1000;
         context.tokensByApiKey[apiKey] = {
             expires,
-            token
+            token,
         };
 
         return { context, token };
@@ -109,8 +116,18 @@ export async function getToken({ apiKey, context = {}, options = {}, token, logg
     throw new Error(`Integration Auth failed. response status: ${response.statusCode}`);
 }
 
-type GetParameters = TokenParameters & Require<UrlParameters, 'resource'> & { searchParams?: Record<string, any> };
-export async function get<T>({ apiKey, base = 'api', context = {}, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: GetParameters) {
+type GetParameters = TokenParameters & Require<UrlParameters, 'resource'> & { searchParams?: SearchParameters };
+export async function get<T>({
+    apiKey,
+    base = 'api',
+    context = {},
+    id,
+    resource,
+    searchParams = {},
+    token,
+    options = {},
+    logger = getLogger(),
+}: GetParameters) {
     if (!resource) {
         throw new Error('get: missing resource name');
     }
@@ -124,7 +141,7 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
 
     if (tokenToUse) {
         const requestOptions = createNewRequestOptions({ logger, headers: options?.headers || {} });
-        logger.debug("get function requestOptions:", requestOptions);
+        logger.debug('get function requestOptions:', requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.searchParams = searchParams;
 
@@ -137,13 +154,13 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
             if (response.statusCode === StatusCodes.OK) {
                 return {
                     context,
-                    data: response.body
-                }
+                    data: response.body,
+                };
             }
 
             logger.error(`Integration get failed. response status: ${response.statusCode}`);
             throw new Error(`Integration get failed. response status: ${response.statusCode}`);
-        } catch (error: any) {
+        } catch (error) {
             logger.error('ethos get failed:', error);
             let errorResponseBody = {};
             if (error.response) {
@@ -153,16 +170,24 @@ export async function get<T>({ apiKey, base = 'api', context = {}, id, resource,
             return {
                 context,
                 error,
-                errorMsg: errorResponseBody
-            }
+                errorMsg: errorResponseBody,
+            };
         }
     } else {
         throw new Error('get failed to get a token');
     }
 }
 
-type GraphQLParameters = TokenParameters & { query: string, variables: Record<string, any> };
-export async function graphql<T>({ apiKey, context = {}, options = {}, query, token, variables, logger = getLogger() }: GraphQLParameters) {
+type GraphQLParameters = TokenParameters & { query: string; variables: Record<string, unknown> };
+export async function graphql<T>({
+    apiKey,
+    context = {},
+    options = {},
+    query,
+    token,
+    variables,
+    logger = getLogger(),
+}: GraphQLParameters) {
     const { token: tokenToUse } = await getToken({ apiKey, context, options, token, logger });
 
     if (tokenToUse) {
@@ -170,7 +195,7 @@ export async function graphql<T>({ apiKey, context = {}, options = {}, query, to
         addAuthorization(tokenToUse, requestOptions);
         requestOptions.json = {
             query,
-            variables
+            variables,
         };
 
         const url = buildUrl({ base: 'graphql', options });
@@ -186,8 +211,19 @@ export async function graphql<T>({ apiKey, context = {}, options = {}, query, to
     }
 }
 
-type PostParameters = GetParameters & { data: any };
-export async function post<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: PostParameters) {
+type PostParameters = GetParameters & { data: unknown };
+export async function post<T>({
+    apiKey,
+    base = 'api',
+    context = {},
+    data,
+    id,
+    resource,
+    searchParams = {},
+    token,
+    options = {},
+    logger = getLogger(),
+}: PostParameters) {
     if (!resource) {
         throw new Error('post: missing resource name');
     }
@@ -202,11 +238,11 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
     if (tokenToUse) {
         // const headers = Object.assign({}, options?.headers, { 'Content-Type': 'application/json'})
         // const requestOptions = createNewRequestOptions({headers});
-        logger.debug("post options", options);
-        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
-        logger.debug("post headers", headers);
+        logger.debug('post options', options);
+        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers);
+        logger.debug('post headers', headers);
         const requestOptions = createNewRequestOptions({ logger, headers });
-        logger.debug("post requestOptions", requestOptions);
+        logger.debug('post requestOptions', requestOptions);
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
             requestOptions.searchParams = searchParams;
@@ -222,13 +258,13 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
             if (response.statusCode === StatusCodes.OK || response.statusCode === StatusCodes.CREATED) {
                 return {
                     context,
-                    data: response.body
-                }
+                    data: response.body,
+                };
             }
 
             logger.error(`Integration post failed. response status: ${response.statusCode}`);
             throw new Error(`Integration post failed. response status: ${response.statusCode}`);
-        } catch (error: any) {
+        } catch (error) {
             logger.error('ethos post failed:', error);
             let errorResponseBody = {};
             if (error.response) {
@@ -238,15 +274,26 @@ export async function post<T>({ apiKey, base = 'api', context = {}, data, id, re
             return {
                 context,
                 error,
-                errorMsg: errorResponseBody
-            }
+                errorMsg: errorResponseBody,
+            };
         }
     } else {
         throw new Error('post failed to get a token');
     }
 }
 
-export async function put<T>({ apiKey, base = 'api', context = {}, data, id, resource, searchParams = {}, token, options = {}, logger = getLogger() }: PostParameters) {
+export async function put<T>({
+    apiKey,
+    base = 'api',
+    context = {},
+    data,
+    id,
+    resource,
+    searchParams = {},
+    token,
+    options = {},
+    logger = getLogger(),
+}: PostParameters) {
     if (!resource) {
         throw new Error('put: missing resource name');
     }
@@ -259,9 +306,9 @@ export async function put<T>({ apiKey, base = 'api', context = {}, data, id, res
     }
 
     if (tokenToUse) {
-        logger.debug("put options", options);
-        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers,)
-        logger.debug("put headers", headers);
+        logger.debug('put options', options);
+        const headers = Object.assign({}, { 'Content-Type': 'application/json' }, options?.headers);
+        logger.debug('put headers', headers);
         const requestOptions = createNewRequestOptions({ logger, headers });
         addAuthorization(tokenToUse, requestOptions);
         if (Object.keys(searchParams).length > 0) {
@@ -278,13 +325,13 @@ export async function put<T>({ apiKey, base = 'api', context = {}, data, id, res
             if (response.statusCode === StatusCodes.OK || response.statusCode === StatusCodes.CREATED) {
                 return {
                     context,
-                    data: response.body
-                }
+                    data: response.body,
+                };
             }
 
             logger.error(`Integration put failed. response status: ${response.statusCode}`);
             throw new Error(`Integration put failed. response status: ${response.statusCode}`);
-        } catch (error: any) {
+        } catch (error) {
             logger.error('ethos put failed:', error);
             let errorResponseBody = {};
             if (error.response) {
@@ -294,8 +341,8 @@ export async function put<T>({ apiKey, base = 'api', context = {}, data, id, res
             return {
                 context,
                 error,
-                errorMsg: errorResponseBody
-            }
+                errorMsg: errorResponseBody,
+            };
         }
     } else {
         throw new Error('put failed to get a token');
@@ -307,5 +354,5 @@ export default {
     get,
     graphql,
     post,
-    put
+    put,
 };

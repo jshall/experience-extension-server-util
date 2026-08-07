@@ -3,23 +3,27 @@
 import log, { type LogLevelDesc } from 'loglevel';
 
 export type Logger = {
-    trace(...msg: any[]): void;
-    debug(...msg: any[]): void;
-    log(...msg: any[]): void;
-    info(...msg: any[]): void;
-    warn(...msg: any[]): void;
-    error(...msg: any[]): void;
-}
+    trace(...msg: unknown[]): void;
+    debug(...msg: unknown[]): void;
+    log(...msg: unknown[]): void;
+    info(...msg: unknown[]): void;
+    warn(...msg: unknown[]): void;
+    error(...msg: unknown[]): void;
+};
 
 export function getLogger(name?: string) {
     return name ? log.getLogger(name) : log;
 }
 
-export function initializeLogging(name: string) {
+export function initializeLogging(name?: string) {
     const logger = getLogger(name);
-    logger.setLevel(process.env.LOG_LEVEL as LogLevelDesc || (process.env.NODE_ENV === 'development' ? 'debug' : 'warn'));
+    logger.setLevel(
+        (process.env.LOG_LEVEL as LogLevelDesc) || (process.env.NODE_ENV === 'development' ? 'debug' : 'warn'),
+    );
     const level = logger.getLevel();
-    const levelName = (Object.keys(logger.levels) as (keyof typeof logger.levels)[]).find(key => logger.levels[key] === level);
+    const levelName = (Object.keys(logger.levels) as (keyof typeof logger.levels)[]).find(
+        (key) => logger.levels[key] === level,
+    );
 
     logger.info(name ? `${name} log level:` : 'log level:', levelName);
 }

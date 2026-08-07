@@ -2,20 +2,26 @@
 
 import got, { type OptionsOfJSONResponseBody } from 'got';
 import { StatusCodes } from 'http-status-codes';
-import type { ExperienceJwt } from './jwt.js';
+import { type ExperienceJwt } from './jwt.js';
 import { getLogger, type Logger } from './log.js';
-import type { Require } from './util.js';
+
+type Require<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: T[P] };
 
 const baseOptions: Require<OptionsOfJSONResponseBody, 'headers'> = {
     responseType: 'json',
     throwHttpErrors: false,
     headers: {
         Accept: 'application/json',
-    }
+    },
 };
 
-type ConfigurationInputs = { jwt?: ExperienceJwt, token: string, url: string, logger?: Logger };
-export async function getCardServerConfiguration<T extends Record<string, any>>({ jwt, token, url, logger = getLogger() }: ConfigurationInputs) {
+type ConfigurationInputs = { jwt?: ExperienceJwt; token?: string; url: string; logger?: Logger };
+export async function getCardServerConfiguration<T extends Record<string, unknown>>({
+    jwt,
+    token,
+    url,
+    logger = getLogger(),
+}: ConfigurationInputs) {
     const configUrl = url || jwt?.card?.cardServerConfigurationApiUrl;
 
     if (!configUrl) {
@@ -32,7 +38,7 @@ export async function getCardServerConfiguration<T extends Record<string, any>>(
     if (response.statusCode === StatusCodes.OK) {
         const { body: config } = response;
 
-        const logConfig: Record<string, any> = { ...config };
+        const logConfig: Record<string, unknown> = { ...config };
         for (const key in logConfig) {
             if (key.toLocaleLowerCase().endsWith('key')) {
                 logConfig[key] = '*****';
@@ -44,8 +50,8 @@ export async function getCardServerConfiguration<T extends Record<string, any>>(
         return {
             error: {
                 message: `failed to get card configuration status: ${response.statusCode}`,
-                statusCode: response.statusCode
-            }
-        }
+                statusCode: response.statusCode,
+            },
+        };
     }
 }
